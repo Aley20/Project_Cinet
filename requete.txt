@@ -1,0 +1,290 @@
+(********************** Requete qui porte sur au moins 3 tables *************************** )
+_________________ Liste des réalisateurs dont le nom commence par 'A' qui ont réalisé des films et des séries _________________
+1) 
+SELECT DISTINCT u.id_utilisateur, u.login
+FROM utilisateur u , realise r, film f, serie s WHERE LEFT(login,1)='A' and u.role='réalisateurs'
+and u.id_utilisateur = r.realisateur and r.film_realise = f.numero
+and r.film_realise = f.numero and r.serie_realise = s.numero;
+
+______________ Liste des organisateurs ayant organisée des événement à Lille ______________
+2)
+SELECT u.login AS organisateurs, u.id_utilisateur AS id
+FROM utilisateur u, organise o, evenement_a_venir e, lieu l WHERE
+u.role='organisateurs' and u.id_utilisateur = o.organisateur and 
+o.evenement=e.id_evenement_a_venir and e.lieu_e=l.id_lieu and l.ville='Lille';
+
+
+(********************** Une ’auto jointure’ (jointure de deux copies d’une même table) **********************)
+_______________________ Liste des Personnes ayant le même genre et âge _____________________________ 
+3)
+SELECT DISTINCT u1.login AS personne1, u1.id_utilisateur AS identifiant1,
+u2.login AS personne2, u2.id_utilisateur AS identifiant2 FROM utilisateur u1 
+JOIN utilisateur u2  ON u1.age = u2.age AND u1.genre=u2.genre
+AND  u1.role='personnes' and u2.role='personnes' and u1.login!=u2.login 
+AND u1.id_utilisateur < u2.id_utilisateur;
+
+_______________________ Liste des publications ayant le même emoji "emojis tout va bien" et la même photo _______________________
+4)
+SELECT DISTINCT p1.id_publication AS publication1, p2.id_publication AS publication2
+FROM publication p1 JOIN publication p2 ON p1.reaction = p2.reaction AND 
+p1.publie_photo = p2.publie_photo AND p1.id_publication < p2.id_publication 
+JOIN emojis e ON e.id_emojis=p1.reaction AND e.id_emojis=p2.reaction AND e.nom='emojis tout va bien';
+
+
+(************************************* Une sous-requête corrélée ******************************************)
+_______________________________________ Nombre total de film d'Action ______________________________________
+5)
+SELECT COUNT(*) AS nombre_films_action
+FROM film
+JOIN genre ON film.genre_f = genre.id_genre
+WHERE genre.nom = 'Action';
+
+__________________________ Nombre total de films joué par chaque acteur  ___________________________________
+6)
+SELECT u.id_utilisateur, u.login,  (
+    SELECT COUNT(j.film_joue)
+    FROM joue j
+    WHERE j.acteur = u.id_utilisateur
+) AS total_films_joue
+FROM utilisateur u WHERE u.role='acteurs';
+
+
+(******************************** Une sous-requête dans le FROM *************************************)
+__________________________ Moyenne des amis des clubs(utilisateur.role='clubs') _____________________________
+7)
+SELECT AVG(subquery.total_amis) AS moyenne_amis_clubs
+FROM (
+    SELECT u.id_utilisateur, COUNT(a.id_utilisateur2) AS total_amis
+    FROM utilisateur u
+    LEFT JOIN amis a ON u.id_utilisateur = a.id_utilisateur1
+    WHERE u.role = 'clubs'
+    GROUP BY u.id_utilisateur
+) AS subquery;
+
+______________ Nombre de places disponibles d'un evenement à venir en plein air, dont le prix<=400 
+et dont la cause est 'faire la promotion d''un nouveau film'_______________________________________
+8)
+SELECT e.id_evenement_a_venir, e.nb_place_dispo
+FROM (
+    SELECT *
+    FROM evenement_a_venir
+    WHERE cause_e = (
+        SELECT id_cause
+        FROM cause
+        WHERE nom = 'faire la promotion d''un nouveau film'
+        LIMIT 1
+    )
+    AND espace_exterieur = true
+    AND prix <= 400
+) AS e;
+
+
+(************************************** Une sous-requête dans le WHERE  *************************************)
+_ Studios qui ont créer une nouvelle discussion qui porte sur la 'Critique de la série La Chronique des Bridgerton'_
+9)
+SELECT u.login, pb.commentaire, pb.id_publication
+FROM utilisateur u
+JOIN publication pb ON pb.publication_u = u.id_utilisateur
+WHERE u.role = 'festivals'
+AND pb.reponse = false 
+AND pb.sujet IN (
+    SELECT id_categorie
+    FROM categorie
+    WHERE nom = 'Critique de la série La Chronique des Bridgerton'
+);
+
+______________ Film qui ne commence pas par la lettre 'A', dont le genre ne soit pas 'Action' et 
+'Comedie', dont le sous-genre ne soit pas 'Aventure', 'Policier' et 'Drame' ,et dont la date de 
+sortie soit compris entre le 1 er mars et 1 er mai 2024 ________________________________
+10)
+SELECT numero ,nom 
+FROM film
+WHERE genre_f NOT IN (
+    SELECT id_genre
+    FROM genre
+    WHERE nom IN ('Action', 'Comedie')
+)
+AND nom NOT LIKE 'A%'
+AND date_sortie < '5/1/2024' AND date_sortie > '3/1/2024'
+AND genre_f NOT IN (
+    SELECT id_sous_genre_de
+    FROM sous_genre_de
+    WHERE id_genre IN (
+        SELECT id_genre
+        FROM genre
+        WHERE nom IN ('Aventure', 'Policier','Drame ')
+    )
+);
+
+
+(******************************** Deux agrégats nécessitant GROUP BY et HAVING *************************)
+_______________________________ Salle de cinéma qui ont publié au moins 3 photo _______________________________
+11)
+SELECT u.login, COUNT(p.id_video_photo) AS nombre_photos_publiees
+FROM utilisateur u
+JOIN publication pb ON pb.publication_u = u.id_utilisateur
+JOIN photo p ON pb.publie_photo = p.id_video_photo WHERE u.role='salle de cinéma'
+GROUP BY u.login
+HAVING COUNT(p.id_video_photo) >= 3;
+
+________________________ Organisateur qui aurait organise au moins 2 evenement _______________________________
+12)
+SELECT o.organisateur, u.login, COUNT(ea.id_evenement_a_venir) AS nb_evenements_a_venir
+FROM organise o
+JOIN evenement_a_venir ea ON o.evenement = ea.id_evenement_a_venir
+JOIN utilisateur u ON o.organisateur = u.id_utilisateur
+WHERE u.role = 'organisateurs'
+GROUP BY o.organisateur, u.login
+HAVING COUNT(o.evenement) >= 2;
+
+
+(******************************** Requête impliquant le calcul de deux agrégats *************************)
+______________________________  Calcul de de la moyenne des prix , et du nombre de chaque événement 
+organisés par chaque organisateur  _____________________________
+13)
+SELECT AVG(moyenne_prix) AS moyenne_prix_tous_evenements, AVG(nb_evenements) AS moyenne_nb_evenements
+FROM (
+    SELECT o.organisateur, AVG(ea.prix) AS moyenne_prix, COUNT(*) AS nb_evenements
+    FROM organise o
+    JOIN evenement_a_venir ea ON o.evenement = ea.id_evenement_a_venir
+    WHERE EXISTS (
+        SELECT 1 FROM utilisateur u WHERE u.id_utilisateur = o.organisateur AND u.role = 'organisateurs'
+    )
+    GROUP BY o.organisateur
+) AS moyenne_prix_et_nombre_evenements;
+
+_________________ Moyenne des Realisateurs qui aurai realise une serie, ________________________________
+_________________ et la  moyenne des Acteurs qui aurai joue dans une serie _____________________________
+14)
+SELECT AVG(nb_series_realisees) AS moyenne_series_realisees, AVG(nb_series_jouees) AS moyenne_series_jouees
+FROM (
+    SELECT 
+        CASE WHEN u.role = 'realisateurs' THEN COUNT(DISTINCT s.numero) ELSE 0 END AS nb_series_realisees,
+        CASE WHEN u.role = 'acteurs' THEN COUNT(DISTINCT s.numero) ELSE 0 END AS nb_series_jouees
+    FROM utilisateur u
+    LEFT JOIN realise r ON u.id_utilisateur = r.realisateur
+    LEFT JOIN joue j ON u.id_utilisateur = j.acteur
+    LEFT JOIN serie s ON r.serie_realise = s.numero OR j.serie_joue = s.numero
+    GROUP BY u.id_utilisateur, u.role
+) AS subquery;
+
+
+(********************* Une jointure externe (LEFT JOIN, RIGHT JOIN ou FULL JOIN) *************************)
+________________ Commentaire de publication de catégorie "critique de Johny Depp" ____________________
+_________________________________ qui tague des actrices _____________________________________________
+15)
+SELECT DISTINCT p.id_publication, p.commentaire
+FROM publication p
+LEFT JOIN tag t ON p.id_publication = t.tag_publication
+LEFT JOIN utilisateur u ON t.tag_utilisateur = u.id_utilisateur
+WHERE p.sujet = (SELECT id_categorie FROM categorie WHERE nom = 'Critique de Johnny Depp')
+AND u.genre = 'F';
+
+____________________________ Nom des séries fantastique en dessin-animé ________________________________
+16) 
+SELECT DISTINCT s.numero, s.nom
+FROM serie s
+RIGHT JOIN genre g ON s.genre_s = g.id_genre
+RIGHT JOIN sous_genre_de sg ON g.id_genre = sg.id_genre
+RIGHT JOIN genre sgd ON sg.id_sous_genre_de = sgd.id_genre
+WHERE g.nom = 'Fantastique'
+AND sgd.nom = 'Dessin-Anime';
+
+
+(************* deux requêtes équivalentes exprimant une condition de totalité, l’une avec des sous ******
+ ********************** requêtes corrélées et l’autre avec de l’agrégation *****************************)
+
+17) Publication taguant un lieu avec l'adresse commençant par '1' et la ville commençant par la lettre 'A'
+___________________________________ Avec sous-requêtes corrélées ___________________________________
+SELECT DISTINCT id_publication, commentaire
+FROM publication p
+WHERE EXISTS (
+    SELECT 1
+    FROM tag t
+    WHERE t.tag_publication = p.id_publication
+) AND EXISTS (
+    SELECT 1
+    FROM lieu l
+    JOIN tag t ON l.id_lieu = t.tag_lieu
+    WHERE t.tag_publication = p.id_publication AND LEFT(l.adresse, 1) = '1' AND l.ville='Allemagne'
+);
+
+________________________________________ Avec de l'agrégation _______________________________________
+SELECT DISTINCT p.id_publication, p.commentaire
+FROM publication p
+JOIN tag t ON p.id_publication = t.tag_publication
+JOIN lieu l ON t.tag_lieu = l.id_lieu
+WHERE LEFT(l.adresse, 1) = '1' AND  l.ville='Allemagne'
+GROUP BY id_publication, commentaire
+HAVING COUNT(*) > 0;
+;
+
+
+(***** Deux requêtes qui renverraient le même résultat si vos tables de contenaient pas de nulls *****)
+
+______________________ Sélectionner l'identifiant de tag dont le lieu est Paris ______________________
+18) 
+SELECT t.id FROM tag t WHERE t.tag_lieu IN (SELECT l.id_lieu FROM lieu l
+   WHERE l.id_lieu IS NOT NULL AND l.ville='Paris');
+
+
+SELECT t.id FROM tag t WHERE EXISTS (SELECT * FROM lieu l
+   WHERE l.id_lieu = t.tag_lieu AND l.id_lieu IS NOT NULL AND l.ville='Paris');
+
+
+(************************************** Une requête récursive *****************************************)
+______________________________ Prochain jour sans événement ________________________________
+19) 
+
+WITH RECURSIVE prochain_jour_sans_projection AS (
+  SELECT CAST(MIN(date_evenement) AS DATE) AS prochain_jour_sans_projection
+  FROM evenement_a_venir
+  WHERE date_evenement > CURRENT_DATE
+  UNION ALL
+  SELECT (prochain_jour_sans_projection + INTERVAL '1 DAY')::DATE
+  FROM prochain_jour_sans_projection
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM evenement_a_venir
+    WHERE date_evenement = prochain_jour_sans_projection + INTERVAL '1 DAY'
+  )
+)
+SELECT prochain_jour_sans_projection
+FROM prochain_jour_sans_projection
+LIMIT 1;
+
+______________ 10 premiers événements à venir pour chaque mois de l'année 2023, classés ______________ 
+______________ par le nombre de participants dans chaque ville._______________________________________
+20)
+WITH ClassementMois AS (
+    SELECT DISTINCT
+        DATE_TRUNC('month', ea.date_evenement) AS mois,
+        l.ville,
+        ea.id_evenement_a_venir, -- Ajout de l'identifiant de l'événement à venir
+        COUNT(i.id_utilisateur) AS nombre_participants,
+        RANK() OVER(PARTITION BY DATE_TRUNC('month', ea.date_evenement) ORDER BY COUNT(i.id_utilisateur) DESC) AS classement
+    FROM
+        evenement_a_venir ea
+    JOIN
+        interesse i ON ea.id_evenement_a_venir = i.id_evenement_a_venir
+    JOIN
+        lieu l ON ea.lieu_e = l.id_lieu
+    WHERE
+        EXTRACT(YEAR FROM ea.date_evenement) = 2023
+    GROUP BY
+        DATE_TRUNC('month', ea.date_evenement),
+        l.ville,
+        ea.id_evenement_a_venir -- Inclure l'identifiant de l'événement à venir dans la clause GROUP BY
+)
+SELECT
+    mois,
+    ville,
+    id_evenement_a_venir, -- Affichage de l'identifiant de l'événement à venir
+    nombre_participants
+FROM
+    ClassementMois
+WHERE
+    classement <= 10
+ORDER BY
+    mois,
+    classement;
